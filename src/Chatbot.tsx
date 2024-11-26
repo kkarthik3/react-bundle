@@ -1,297 +1,427 @@
 "use client";
-
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import Image from "next/image";
-import {ChevronDown, Send } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { X, MessageSquare, ChevronLeft, ChevronRight } from 'lucide-react';
 import Draggable from "react-draggable";
+import { Resizable } from "re-resizable";
+import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
-import axios from 'axios';
-import styled, { css } from 'styled-components';
 
-// Types
-type Message = {
-  sender: string;
-  text: string;
-};
+interface Message {
+  type: "text" | "cars" | "form";
+  content: string | null;
+  sender: "user" | "bot";
+  recommendations?: string[];
+}
 
-const NotificationWrapper = styled.div`
-  position: absolute;
-  bottom: 100%;
-  right: 0;
-  background-color: white;
-  padding: 12px 16px;
-  border-radius: 12px;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-  margin-bottom: 10px;
-  transition: all 0.3s ease-in-out;
-  opacity: 0;
-  transform: translateY(10px);
-  pointer-events: none;
-  color: black;
-  white-space: nowrap;
+interface Car {
+  name: string;
+  image: string;
+  year: number;
+  price: number;
+}
 
-  ${props => props.className === 'show' && css`
-    opacity: 1;
-    transform: translateY(0);
-  `}
-`;
-
-const ChatWrapper = styled.div`
-  position: fixed;
-  bottom: 10px;
-  right: 10px;
-  transition: all 0.3s ease-in-out;
-`;
-
-const ChatButton = styled.button`
-  background-color: black;
-  color: white;
-  border-radius: 30px;
-  padding: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
-  height: 70px;
-  overflow: hidden;
-  width: 70px;
-  transition: width 0.5s ease, box-shadow 0.3s ease, background-color 0.3s ease;
-  
-  &:hover {
-    background-color: #333;
-    width: 125px;
-    box-shadow: 0 0 20px rgba(0, 0, 0, 0.4);
-  }
-  
-  div {
-    display: none;
-  }
-  
-  &:hover div {
-    display: block;
-  }
-`;
-
-const ChatWindow = styled.div<{ isDragging: boolean }>`
-  position: fixed;
-  bottom: 4px;
-  right: 4px;
-  width: 320px;
-  background-color: white;
-  border-radius: 25px;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
-  flex-direction: column;
-  display: flex;
-  transform: ${({ isDragging }) => (isDragging ? "scale(1.2)" : "scale(1)")};
-  transition: all 0.05s ease;
-  overflow: hidden;
-`;
-
-const Header = styled.div`
-  background-color: black;
-  color: white;
-  padding: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-`;
-
-const MessageArea = styled.div`
-  flex: 1;
-  padding: 12px;
-  overflow-y: auto;
-  max-height: 400px;
-  background-color: #f8f8f8;
-  &::-webkit-scrollbar {
-    width: 0;
-    background: transparent;
-  }
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-`;
-
-const MessageBubble = styled.div<{ sender: string }>`
-  max-width: 80%;
-  padding: 8px 15px;
-  border-radius: 12px;
-  margin: 8px;
-  word-wrap: break-word;
-  background-color: ${({ sender }) => (sender === "user" ? "black" : "#e0e0e0")};
-  color: ${({ sender }) => (sender === "user" ? "white" : "black")};
-`;
-
-const MessageContainer = styled.div<{ sender: string }>`
-  display: flex;
-  justify-content: ${({ sender }) => (sender === "user" ? "flex-end" : "flex-start")};
-  width: 100%;
-`;
-
-const InputArea = styled.div`
-  padding: 8px;
-  border-top: 1px solid #ddd;
-  display: flex;
-  gap: 12px;
-`;
-
-const Input = styled.input`
-  flex: 1;
-  padding: 12px;
-  border-radius: 35px;
-  border: 1px solid #ddd;
-  outline: none;
-  transition: all 0.3s ease;
-  &:focus {
-    border-color: black;
-  }
-`;
-
-const SendButton = styled.button`
-  padding: 12px;
-  background-color: black;
-  color: white;
-  border-radius: 15px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-  
-  &:hover {
-    background-color: #333;
-  }
-`;
-
-const ChatbotUI = () => {
+const CustomerSupportChatbot = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [userName, setUserName] = useState("");
-  const [isDragging, setIsDragging] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [showNotification, setShowNotification] = useState(false);
-  const chatBodyRef = useRef<HTMLDivElement>(null);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      type: "text",
+      content: "Welcome! How can I assist you today?",
+      sender: "bot",
+    },
+  ]);
+  const [inputMessage, setInputMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showButtons, setShowButtons] = useState(true);
+  const [currentCarIndex, setCurrentCarIndex] = useState(0);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [cars, setCars] = useState<Car[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [inputEnabled, setInputEnabled] = useState(false)
+  const [isFormSubmitted, setIsFormSubmitted] = useState(false);
+  const [windowSize, setWindowSize] = useState({ width: 400, height: 600 });
 
-  // Notification logic
+  // Use sessionId from useRef to maintain consistency
+  const sessionId = useRef(uuidv4());
+
   useEffect(() => {
-    setShowNotification(true);
-    const timer = setTimeout(() => {
-      setShowNotification(false);
-    }, 10000);
-    return () => clearTimeout(timer);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  useEffect(() => {
+    const fetchCarVariants = async () => {
+      try {
+        const response = await axios.get(
+          "https://s3bebicvlnm3dn3clqktisk7he0sgwyp.lambda-url.us-east-1.on.aws/models"
+        );
+        setCars(Object.values(response.data));
+      } catch (error) {
+        console.error("Error fetching car variants:", error);
+        setMessages((prev) => [
+          ...prev,
+          {
+            type: "text",
+            content: "Error fetching car variants. Please try again later.",
+            sender: "bot",
+          },
+        ]);
+      }
+    };
+
+    fetchCarVariants();
   }, []);
 
-  // Auto scroll to the bottom when new messages are added
-  useEffect(() => {
-    if (isOpen && chatBodyRef.current) {
-      chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+  const callChatAPI = async (message: string) => {
+    const response = await fetch(`https://interim-cab-module-api.ispgnet.com/chat/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        question: message,
+        session_id: sessionId.current,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to call Chat API");
     }
-  }, [isOpen, messages]);
 
-  // Initialize chat session when chat opens
-  useEffect(() => {
-    if (isOpen && messages.length === 0) {
-      setMessages([{ sender: "bot", text: "How would you like to be addressed?" }]);
-      setSessionId(uuidv4());
-    }
-  }, [isOpen, messages]);
+    const data = await response.json();
+    console.log(data);
+    return { response: data.responses, recommendations: data.recommendations };
+  };
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim()) return;
+  const handleSendMessage = async (message: string = inputMessage) => {
+    if (!message.trim()) return;
 
-    setMessages((prevMessages) => [...prevMessages, { sender: "user", text: input }]);
-    setInput("");
-    setIsLoading(true);
+    setLoading(true);
+    setMessages((prev) => [
+      ...prev,
+      { type: "text", content: message, sender: "user" },
+    ]);
+    setInputMessage("");
 
-    if (!userName) {
-      setUserName(input);
-      setMessages((prevMessages) => [...prevMessages, { sender: "bot", text: "How may I help you today?" }]);
-      setIsLoading(false);
-    } else {
-      const payload = {
-        brand: "chery",
-        user_id: "rht",
-        user_name: userName,
-        chat_head_id: "658d0c508a09c124daca92b6",
-        input_message_id: "668166a2ccf371c56d8697dd",
-        message: input,
-        session_id: sessionId || uuidv4(),
-      };
-      console.log("Payload:", payload);
-      try {
-        const response = await axios.post(
-          "https://interim-cab-module-api.ispgnet.com/bot/message",
-          payload,
-          {
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: "Basic " + btoa("ispg:ispg"),
-            },
-          }
-        );
-
-        const data = response.data;
-        if (data.output?.text) {
-          setMessages((prevMessages) => [...prevMessages, { sender: "bot", text: data.output.text }]);
-        }
-      } catch (error) {
-        setMessages((prevMessages) => [...prevMessages, { sender: "bot", text: "I'm sorry, I couldn't process your request." }]);
-      }
-      setIsLoading(false);
-    }
-  }, [input, userName, sessionId]);
-
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      handleSend();
+    try {
+      const { response, recommendations } = await callChatAPI(message);
+      setMessages((prev) => [
+        ...prev,
+        { 
+          type: "text", 
+          content: response, 
+          sender: "bot",
+          recommendations: recommendations 
+        },
+      ]);
+    } catch (error) {
+      console.error("Error calling Chat API:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          type: "text",
+          content: "Sorry, I encountered an error. Please try again later.",
+          sender: "bot",
+        },
+      ]);
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (!isOpen) {
-    return (
-      <ChatWrapper>
-        <NotificationWrapper className={showNotification ? 'show' : ''}>How may I help you today?</NotificationWrapper>
-        <ChatButton onClick={() => setIsOpen(true)}>
-          <Image src="/images/logo_chat.jpg" alt="Chat Logo" width={40} height={40} style={{ borderRadius: '30%' }} />
-          <div>We&apos;re Online!</div>
-        </ChatButton>
-      </ChatWrapper>
-    );
-  }
+  const handleQueryClick = () => {
+    setShowButtons(false)
+    setInputEnabled(true)
+    setMessages((prev) => [
+      ...prev,
+      {
+        type: "text",
+        content: "Sure, what would you like to know?",
+        sender: "bot",
+      },
+    ]);
+  };
+
+  const handleShowCars = () => {
+    setShowButtons(false);
+    setMessages((prev) => [
+      ...prev,
+      { type: "cars", content: null, sender: "bot" },
+    ]);
+  };
+
+  const handleShowInterest = () => {
+    setMessages((prev) => {
+      // Check if there's already a form message in the array
+      const hasForm = prev.some((message) => message.type === "form");
+  
+      // If a form message exists, return the array unchanged; otherwise, add a new form message
+      if (hasForm) {
+        return prev;
+      }
+  
+      return [
+        ...prev,
+        { type: "form", content: null, sender: "user" },
+      ];
+    });
+  };
+
+  const handleSubmitInterest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const response = await axios.post(
+        "https://s3bebicvlnm3dn3clqktisk7he0sgwyp.lambda-url.us-east-1.on.aws/saveInterest",
+        {
+          name,
+          email,
+          car: cars[currentCarIndex]?.name || "Default Car",
+        },
+        {
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          type: "text",
+          content: `Thank you ${name}! We'll contact you at ${email} about the ${cars[currentCarIndex]?.name}.`,
+          sender: "bot",
+        },
+      ]);
+      setName("");
+      setEmail("");
+      setShowButtons(true);
+      setInputEnabled(false);
+      setIsFormSubmitted(true);
+    } catch (error) {
+      console.error("Error saving interest:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          type: "text",
+          content:
+            "Sorry, there was an error saving your interest. Please try again later.",
+          sender: "bot",
+        },
+      ]);
+    }
+  };
 
   return (
-    <Draggable handle=".drag-handle" onStart={() => setIsDragging(true)} onStop={() => setIsDragging(false)} bounds="parent">
-      <ChatWindow isDragging={isDragging}>
-        <Header className="drag-handle">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Image src="/images/logo_chat.jpg" alt="Chat Logo" width={30} height={30} style={{ borderRadius: '50%' }} />
-            <div>Chat with us</div>
-          </div>
-          <button onClick={() => setIsOpen(false)}><ChevronDown className="w-5 h-5" /></button>
-        </Header>
-
-        <MessageArea ref={chatBodyRef}>
-          {messages.map((msg, index) => (
-            <MessageContainer key={index} sender={msg.sender}>
-              <MessageBubble sender={msg.sender}>{msg.text}</MessageBubble>
-            </MessageContainer>
-          ))}
-          {isLoading && <MessageBubble sender="bot">...</MessageBubble>}
-        </MessageArea>
-
-        <InputArea>
-          <Input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder={userName ? "Type your message..." : "Enter your name"}
-          />
-          <SendButton onClick={handleSend}><Send className="w-5 h-5" /></SendButton>
-        </InputArea>
-      </ChatWindow>
-    </Draggable>
+    <div className="fixed bottom-4 right-4">
+      {!isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="fixed bottom-4 right-5 flex items-center rounded-full bg-black text-white py-2 px-4"
+        >
+          <MessageSquare className="mr-2 h-4 w-4 " /> Chat
+        </button>
+      )}
+      {isOpen && (
+        <Draggable handle=".handle">
+          <Resizable
+            size={{ width: windowSize.width, height: windowSize.height }}
+            minWidth={300}
+            minHeight={400}
+            maxWidth={500}
+            maxHeight={650}
+            onResizeStop={(e, direction, ref, d) => {
+              setWindowSize({
+                width: parseFloat(ref.style.width),
+                height: parseFloat(ref.style.height),
+              });
+            }}
+            className="fixed w-80 h-[500px] flex flex-col bg-white text-black shadow-lg rounded-lg"
+          >
+            <div className="flex justify-between items-center mb-4 p-4 border-b handle bg-black rounded-t-xl">
+              <h2 className="text-lg font-semibold text-white">Customer Support</h2>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="rounded-full p-2 hover:bg-gray-200 hover:text-white bg-black transition-colors"
+              >
+                <X className="h-4 w-4 text-white" />
+              </button>
+            </div>
+            <div className="flex-grow overflow-y-auto p-4 space-y-4">
+              {messages.map((msg, index) => (
+                <div
+                  key={index}
+                  className={`flex ${
+                    msg.sender === "user" ? "justify-end" : "justify-start"
+                  }`}
+                >
+                  {msg.type === "text" && msg.content && (
+                    <div
+                      className={`flex  rounded-lg p-2 max-w-[80%] text-justify ${
+                        msg.sender === "user"
+                          ? "bg-black text-white"
+                          : "bg-gray-200"
+                      }`}
+                    >
+                      {msg.content}
+                    </div>
+                  )}
+                  {msg.type === "cars" &&
+                    cars.length > 0 &&
+                    cars[currentCarIndex] && (
+                      <div className="w-[80%] bg-white text-black shadow-lg rounded-xl ">
+                        <div className="p-4">
+                          <img
+                            src={cars[currentCarIndex].image}
+                            alt={cars[currentCarIndex].name}
+                            className="w-full h-40 object-cover mb-2 bg-gray-200 rounded-lg"
+                          />
+                          <h2 className="font-semibold text-base">
+                            {cars[currentCarIndex].name}
+                          </h2>
+                          <h3 className="font-medium text-base">
+                            {cars[currentCarIndex].year}
+                          </h3>
+                        </div>
+                        <div className="flex justify-between border-t p-4">
+                          <button
+                            onClick={() =>
+                              setCurrentCarIndex(
+                                (prev) => (prev - 1 + cars.length) % cars.length
+                              )
+                            }
+                            className="rounded-full p-2 hover:bg-gray-200 transition-colors"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={handleShowInterest}
+                            className="bg-black text-white py-2 px-4 rounded"
+                          >
+                            Show Interest
+                          </button>
+                          <button
+                            onClick={() =>
+                              setCurrentCarIndex(
+                                (prev) => (prev + 1) % cars.length
+                              )
+                            }
+                            className="rounded-full p-2 hover:bg-gray-200 transition-colors"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  {msg.type === "form" && !isFormSubmitted &&(
+                    <form
+                      onSubmit={handleSubmitInterest}
+                      className="space-y-2 w-[80%] "
+                    >
+                      <input
+                        type="text"
+                        placeholder="Your Name"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        required
+                        className="w-full rounded-lg border border-gray-300 bg-white text-black p-2"
+                      />
+                      <input
+                        type="email"
+                        placeholder="Your Email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                        className="w-full rounded-lg border border-gray-300 bg-white text-black p-2"
+                      />
+                      <button
+                        type="submit"
+                        className="w-full bg-black text-white py-2 px-4 rounded"
+                      >
+                        Submit Interest
+                      </button>
+                    </form>
+                  )}
+                </div>
+              ))}
+              {messages[messages.length - 1]?.sender === "bot" && messages[messages.length - 1]?.recommendations && (
+                <div className="flex flex-wrap justify-end gap-2 mt-2 w-[80%] ml-auto">
+                  {messages[messages.length - 1].recommendations?.map((recommendations, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleSendMessage(recommendations)}
+                      className="bg-gray-200 text-black py-1 px-2 rounded text-sm 
+                                  border border-black 
+                                  hover:bg-gray-300 hover:border-gray-700 
+                                  transition-all duration-200 ease-in-out"
+                    >
+                      {recommendations}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {showButtons && (
+                <div className="flex justify-center space-x-2">
+                  <button
+                    onClick={handleQueryClick}
+                    className="bg-black text-white py-2 px-4 rounded"
+                  >
+                    Queries
+                  </button>
+                  <button
+                    onClick={handleShowCars}
+                    className="bg-black text-white py-2 px-4 rounded"
+                  >
+                    Show Cars
+                  </button>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+            {inputEnabled && (
+              <div className="p-4 border-t flex space-x-2 rounded-b-xl">
+                <input
+                  type="text"
+                  placeholder="Type a message..."
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleSendMessage()
+                    }
+                  }}
+                  className="flex-grow rounded-lg border border-gray-300 p-2"
+                  disabled={loading}
+                />
+                <button
+                  onClick={() => handleSendMessage()}
+                  className="bg-black text-white py-2 px-4 rounded flex items-center"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <div className="loader"></div>
+                  ) : (
+                    "Send"
+                  )}
+                </button>
+              </div>
+            )}
+          </Resizable>
+        </Draggable>
+      )}
+      <style>{`
+        .loader {
+          border: 2px solid #f3f3f3;
+          border-top: 2px solid #333;
+          border-radius: 50%;
+          width: 16px;
+          height: 16px;
+          animation: spin 1s linear infinite;
+        }
+      
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
   );
 };
 
-export default ChatbotUI;
+export default CustomerSupportChatbot;
