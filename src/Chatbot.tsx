@@ -181,6 +181,8 @@ const CustomerSupportChatbot = () => {
         }
       );
 
+      console.log("Interest saved:", response.data);
+
       setMessages((prev) => [
         ...prev,
         {
